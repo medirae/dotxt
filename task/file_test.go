@@ -2,7 +2,7 @@ package task
 
 import (
 	"dotxt/config"
-	"dotxt/pkg/terrors"
+	"dotxt/terrors"
 	"os"
 	"path/filepath"
 	"strings"

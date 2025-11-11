@@ -2,7 +2,7 @@ package task
 
 import (
 	"bytes"
-	"dotxt/pkg/utils"
+	"dotxt/utils"
 	"fmt"
 	"maps"
 	"math"
@@ -251,7 +251,7 @@ func TestFormatPriorities(t *testing.T) {
 		hues[task] = hueVal
 		lineMap[task] = line
 	}
-	cleanupRelations(path)
+	CleanupRelations(path)
 	rtasks := func() map[*Task]*rTask {
 		out := make(map[*Task]*rTask)
 		for _, t := range Lists[path].Tasks {
@@ -528,7 +528,7 @@ func TestRenderList(t *testing.T) {
 		AddTaskFromStr("$id=6 $P=5", path)
 		AddTaskFromStr("$P=6", path)
 		AddTaskFromStr("$id=7", path)
-		cleanupRelations(path)
+		CleanupRelations(path)
 		rtasks, _, err := RenderList(path)
 		assert.NoError(err)
 		root := func(node *Task) *Task {
@@ -578,7 +578,7 @@ func TestRenderList(t *testing.T) {
 		AddTaskFromStr("29 $P=20", path)
 		AddTaskFromStr("30 $P=19", path)
 		AddTaskFromStr("31", path)
-		cleanupRelations(path)
+		CleanupRelations(path)
 		Lists.Sort(path)
 		rtasks, listinfo, err := RenderList(path)
 		assert.NoError(err)
@@ -713,7 +713,7 @@ func TestStringify(t *testing.T) {
 		AddTaskFromStr("12 =============================================================================================================================", path)
 		AddTaskFromStr("13 one two three four five six seven eight nine ten eleven ============================================================= twelve thirteen fourteen sixteen seventeen eighteen nineteen twenty twenty-one", path)
 		AddTaskFromStr("14 =============================================================", path)
-		cleanupRelations(path)
+		CleanupRelations(path)
 		Lists.Sort(path)
 		helper := func(ndx int) string {
 			task := Lists[path].Tasks[ndx]
@@ -748,7 +748,7 @@ func TestStringify(t *testing.T) {
 		AddTaskFromStr("$P=second 1", path)
 		AddTaskFromStr("$P=second 2", path)
 		AddTaskFromStr("$P=second 3", path)
-		cleanupRelations(path)
+		CleanupRelations(path)
 
 		task := Lists[path].Tasks[0]
 		rtask := task.Render()
@@ -768,7 +768,7 @@ func TestStringify(t *testing.T) {
 		path, _ := parseFilepath("test")
 		Lists.Empty(path)
 		AddTaskFromStr("(6) #Literature #classics +ugliness @y:1831 #rate:4.02/8k/211k @auth:Victor-Hugo The Hunchback of Notre-Dame $p=page/165/510/books $c=2025-05-17T17-06-25", path)
-		cleanupRelations(path)
+		CleanupRelations(path)
 		task := Lists[path].Tasks[0]
 		rtask := task.Render()
 		rtask.idLen = 2
@@ -786,7 +786,7 @@ func TestStringify(t *testing.T) {
 		AddTaskFromStr("$P=second 1", path)
 		AddTaskFromStr("$P=second 2", path)
 		AddTaskFromStr("$P=second 3", path)
-		cleanupRelations(path)
+		CleanupRelations(path)
 
 		task := Lists[path].Tasks[1]
 		rtask := task.Render()

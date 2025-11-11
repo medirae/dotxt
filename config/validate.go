@@ -1,8 +1,8 @@
 package config
 
 import (
-	"dotxt/pkg/terrors"
-	"dotxt/pkg/utils"
+	"dotxt/terrors"
+	"dotxt/utils"
 	"fmt"
 	"unicode"
 

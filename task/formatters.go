@@ -2,7 +2,7 @@ package task
 
 import (
 	"dotxt/config"
-	"dotxt/pkg/utils"
+	"dotxt/utils"
 	"fmt"
 	"maps"
 	"math"

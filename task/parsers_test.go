@@ -2,7 +2,7 @@ package task
 
 import (
 	"dotxt/config"
-	"dotxt/pkg/terrors"
+	"dotxt/terrors"
 	"fmt"
 	"os"
 	"strconv"
@@ -28,10 +28,12 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// TODO: remove
 func clearTasks(path string) {
 	Lists.Empty(path)
 }
 
+// TODO: incinerate
 func mockLoad(path string) error {
 	path, err := parseFilepath(path)
 	clearTasks(path)

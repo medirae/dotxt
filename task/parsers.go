@@ -1,9 +1,9 @@
 package task
 
 import (
-	"dotxt/pkg/logging"
-	"dotxt/pkg/terrors"
-	"dotxt/pkg/utils"
+	"dotxt/logging"
+	"dotxt/terrors"
+	"dotxt/utils"
 	"errors"
 	"fmt"
 	"math"

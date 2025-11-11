@@ -1,7 +1,7 @@
 package task
 
 import (
-	"dotxt/pkg/utils"
+	"dotxt/utils"
 	"slices"
 	"strings"
 	"time"

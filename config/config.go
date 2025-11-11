@@ -2,9 +2,9 @@ package config
 
 import (
 	"bytes"
-	"dotxt/pkg/logging"
-	"dotxt/pkg/terrors"
-	"dotxt/pkg/utils"
+	"dotxt/logging"
+	"dotxt/terrors"
+	"dotxt/utils"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,6 +34,10 @@ func setConfigPath(path string) error {
 	}
 	configPath = path
 	return nil
+}
+
+func ConfigFile() string {
+	return filepath.Join(ConfigPath(), "dotxt.toml")
 }
 
 func SelectConfigFile(arg string) error {

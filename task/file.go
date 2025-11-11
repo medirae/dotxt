@@ -2,8 +2,8 @@ package task
 
 import (
 	"dotxt/config"
-	"dotxt/pkg/terrors"
-	"dotxt/pkg/utils"
+	"dotxt/terrors"
+	"dotxt/utils"
 	"fmt"
 	"io/fs"
 	"os"
@@ -45,7 +45,7 @@ func parseFilepath(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return filepath.Join(todosDir(), "todo"), nil
 	}
-	if path[utils.RuneCount(path)-1] == '/' {
+	if utils.RuneAt(path, utils.RuneCount(path)-1) == '/' {
 		return "", fmt.Errorf("%w: path cannot end in a / '%s'", terrors.ErrParse, path)
 	}
 	if filepath.IsAbs(path) {
@@ -338,7 +338,7 @@ func LoadFile(path string) error {
 		return err
 	}
 	Lists[path].Tasks = fileTasks
-	cleanupRelations(path)
+	CleanupRelations(path)
 	return nil
 }
 

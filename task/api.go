@@ -1,15 +1,15 @@
 package task
 
 import (
-	"dotxt/pkg/terrors"
-	"dotxt/pkg/utils"
+	"dotxt/terrors"
+	"dotxt/utils"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
 )
 
-func cleanupIDs(path string) error {
+func CleanupIDs(path string) error {
 	path, err := prepFileTaskFromPath(path)
 	if err != nil {
 		return err
@@ -53,7 +53,7 @@ func cleanupIDs(path string) error {
 	return nil
 }
 
-func cleanupRelations(path string) error {
+func CleanupRelations(path string) error {
 	path, err := prepFileTaskFromPath(path)
 	if err != nil {
 		return err
@@ -125,8 +125,8 @@ func AddTask(task *Task, path string) error {
 		return err
 	}
 	Lists.Append(path, task)
-	cleanupIDs(path)
-	cleanupRelations(path)
+	CleanupIDs(path)
+	CleanupRelations(path)
 	return nil
 }
 
@@ -182,7 +182,7 @@ func AppendToTask(id int, text, path string) error {
 		return err
 	}
 	task.ID = &id // TODO: why is this necessary?
-	cleanupRelations(path)
+	CleanupRelations(path)
 	return nil
 }
 
@@ -197,7 +197,7 @@ func PrependToTask(id int, text, path string) error {
 		return err
 	}
 	task.ID = &id // TODO: why is this necessary?
-	cleanupRelations(path)
+	CleanupRelations(path)
 	return nil
 }
 
@@ -212,7 +212,7 @@ func ReplaceTask(id int, text, path string) error {
 		return err
 	}
 	task.ID = &id // TODO: why is this necessary?
-	cleanupRelations(path)
+	CleanupRelations(path)
 	return nil
 }
 
@@ -342,11 +342,11 @@ func DeleteTasks(ids []int, path string) error {
 	for _, ndx := range indexes {
 		Lists.DeleteTasks(path, ndx, ndx+1)
 	}
-	err = cleanupIDs(path)
+	err = CleanupIDs(path)
 	if err != nil {
 		return err
 	}
-	cleanupRelations(path)
+	CleanupRelations(path)
 	return nil
 }
 
@@ -364,8 +364,8 @@ func DoneTask(ids []int, path string) error {
 		tasks = append(tasks, Lists[path].Tasks[ndx])
 		Lists.DeleteTasks(path, ndx, ndx+1)
 	}
-	cleanupIDs(path)
-	cleanupRelations(path)
+	CleanupIDs(path)
+	CleanupRelations(path)
 
 	var out []string
 	for _, task := range tasks {
@@ -394,11 +394,11 @@ func MoveTask(from string, id int, to string) error {
 	}
 
 	Lists.Append(to, Lists[from].Tasks[taskNdx])
-	cleanupIDs(to)
-	cleanupRelations(to)
+	CleanupIDs(to)
+	CleanupRelations(to)
 	Lists.DeleteTasks(from, taskNdx, taskNdx+1)
-	cleanupIDs(from)
-	cleanupRelations(from)
+	CleanupIDs(from)
+	CleanupRelations(from)
 	return nil
 }
 
@@ -419,7 +419,7 @@ func RevertTask(ids []int, path string) error {
 		}
 		Lists.Append(path, task)
 	}
-	cleanupRelations(path)
+	CleanupRelations(path)
 	return nil
 }
 

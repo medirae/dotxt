@@ -2,8 +2,8 @@ package cmd
 
 import (
 	"dotxt/config"
-	"dotxt/pkg/logging"
-	"dotxt/pkg/terrors"
+	"dotxt/logging"
+	"dotxt/terrors"
 	"fmt"
 	"io"
 	"path/filepath"

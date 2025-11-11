@@ -1,7 +1,7 @@
 package task
 
 import (
-	"dotxt/pkg/terrors"
+	"dotxt/terrors"
 	"fmt"
 	"strings"
 	"testing"

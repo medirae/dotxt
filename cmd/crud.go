@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"dotxt/pkg/task"
-	"dotxt/pkg/terrors"
+	"dotxt/task"
+	"dotxt/terrors"
 	"fmt"
 	"path/filepath"
 	"strconv"

@@ -1,7 +1,7 @@
 package config
 
 import (
-	"dotxt/pkg/logging"
+	"dotxt/logging"
 	"html/template"
 	"strings"
 )

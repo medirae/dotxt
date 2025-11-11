@@ -2,8 +2,8 @@ package task
 
 import (
 	"dotxt/config"
-	"dotxt/pkg/terrors"
-	"dotxt/pkg/utils"
+	"dotxt/terrors"
+	"dotxt/utils"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,7 +28,7 @@ func TestCleanupIDs(t *testing.T) {
 		for _, ndx := range []int{0, 2, 4, 6, 7, 9} {
 			Lists[path].Tasks[ndx].ID = nil
 		}
-		cleanupIDs(path)
+		CleanupIDs(path)
 		for ndx := range 10 {
 			task := Lists[path].Tasks[ndx]
 			if assert.NotNil(task.ID) {
@@ -45,7 +45,7 @@ func TestCleanupIDs(t *testing.T) {
 			}
 			Lists[path].Tasks[ndx].ID = utils.MkPtr(sign * 10 * ndx)
 		}
-		cleanupIDs(path)
+		CleanupIDs(path)
 		for ndx := range 10 {
 			task := Lists[path].Tasks[ndx]
 			if assert.NotNil(task.ID) {
@@ -58,7 +58,7 @@ func TestCleanupIDs(t *testing.T) {
 		for ndx := range []int{1, 4, 6, 7, 9} {
 			Lists[path].Tasks[ndx].ID = utils.MkPtr(0)
 		}
-		cleanupIDs(path)
+		CleanupIDs(path)
 		for ndx := range 10 {
 			task := Lists[path].Tasks[ndx]
 			if assert.NotNil(task.ID) {
@@ -574,7 +574,7 @@ func TestCleanupRelations(t *testing.T) {
 		task, _ := ParseTask(utils.MkPtr(ndx), line)
 		Lists.Append(path, task)
 	}
-	cleanupRelations(path)
+	CleanupRelations(path)
 	get := func(ndx int) *Task {
 		return Lists[path].Tasks[ndx]
 	}
@@ -674,7 +674,7 @@ func TestCleanupRelations(t *testing.T) {
 			task, _ := ParseTask(utils.MkPtr(ndx), line)
 			Lists.Append(path, task)
 		}
-		cleanupRelations(path)
+		CleanupRelations(path)
 		t.Run("self loop", func(t *testing.T) {
 			assert.Nil(get(0).PID)
 			assert.Nil(get(0).Parent)

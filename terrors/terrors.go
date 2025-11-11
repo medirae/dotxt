@@ -16,6 +16,10 @@ var (
 	ErrFlag            = errors.New("flag error")
 	ErrListNotInMemory = errors.New("list not in memory error")
 	ErrNotFound        = errors.New("not found error")
+	ErrRPC             = errors.New("rpc error")
+	ErrConcurrency     = errors.New("concurrency error")
+	ErrPath            = errors.New("path error")
+	ErrFile            = errors.New("file error")
 )
 
 func ErrorArgNotProvided(field string) error {

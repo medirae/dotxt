@@ -1,8 +1,8 @@
 package task
 
 import (
-	"dotxt/pkg/terrors"
-	"dotxt/pkg/utils"
+	"dotxt/terrors"
+	"dotxt/utils"
 	"fmt"
 	"strings"
 	"unicode"

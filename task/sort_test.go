@@ -60,7 +60,7 @@ func TestSortTask(t *testing.T) {
 			assert.NotNil(task)
 			Lists.Append(path, task)
 		}
-		cleanupRelations(path)
+		CleanupRelations(path)
 		Lists.Sort(path)
 		arr = Lists[path].Tasks
 	}

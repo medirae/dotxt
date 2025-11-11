@@ -1,8 +1,8 @@
 package task
 
 import (
-	"dotxt/pkg/terrors"
-	"dotxt/pkg/utils"
+	"dotxt/terrors"
+	"dotxt/utils"
 	"fmt"
 	"reflect"
 	"slices"
@@ -65,7 +65,7 @@ func (l *lists) Init(path string, values ...*Task) {
 		}
 	} else if len(values) > 0 {
 		l.Set(path, values)
-		cleanupRelations(path)
+		CleanupRelations(path)
 	}
 }
 
@@ -82,7 +82,7 @@ func (l *lists) Empty(path string, values ...*Task) {
 func (l *lists) Set(path string, tasks []*Task) {
 	l.Init(path)
 	(*l)[path].Tasks = tasks
-	cleanupRelations(path)
+	CleanupRelations(path)
 }
 
 // append task to list if it exists
@@ -121,6 +121,12 @@ func (l *lists) Len(path string) int {
 		return len((*l)[path].Tasks)
 	}
 	return 0
+}
+
+func (l *lists) Clear() {
+	for key := range *l {
+		delete(*l, key)
+	}
 }
 
 type TokenType int
