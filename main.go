@@ -3,7 +3,11 @@ package main
 import (
 	"dotxt/cmd"
 	"dotxt/config"
-	"dotxt/pkg/logging"
+	"dotxt/logging"
+
+	// "dotxt/rpc/client"
+	// "dotxt/rpc/server"
+
 	"os"
 	"slices"
 	"strconv"
@@ -34,6 +38,19 @@ func checkQuietFlag() {
 }
 
 func main() {
+	// for ndx := 1; ndx < len(os.Args); ndx++ {
+	// 	arg := os.Args[ndx]
+	// 	switch arg {
+	// 	case "server":
+	// 		server.RunServer()
+	// 	case "client":
+	// 		fmt.Println(client.AddTask("testing this", "workdesk"))
+	// 	default:
+	// 		os.Exit(1)
+	// 	}
+	// }
+	// os.Exit(0)
+
 	checkQuietFlag()
 	defer func() {
 		if err := logging.Close(); err != nil {
