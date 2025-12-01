@@ -1,0 +1,443 @@
+package main
+
+/*
+os-fsnotify relationship
+func | dir watched | file watched | dir of file watched | notes
+os.Chmod | Chmod | Chmod | - | `IN_ATTRIB`
+os.Create | - | if file already existed and truncated: Write (maybe +Chmod/+Attrib); if file new: Create -> Write | if file new: Create, else - | O_CREATE
+os.CreateTemp | - | - | Create | os.Create
+os.Symlink | - | - | Create | -
+os.MkDir | - | - | Create | -
+os.Open | - | - | - | -
+os.OpenFile(O_RDONLY) | - | - | - | -
+os.OpenFile(O_CREATE) | - | - | Create | -
+os.OpenFile(O_TRUNC) | - | Write | - | -
+os.OpenFile(O_WRONLY) | - | - | Write | -
+os.Remove | Remove | Remove | Remove | -
+os.Rename | Rename(old) -> Create(new) | Rename | Rename(old) -> Create(new) | -
+os.Truncate | - | Write | - | -
+os.WriteFile | - | if file already exists Write; else Create -> Write | if file is new: Create | os.OpenFile(O_CREATE)
+
+(p)Mkdir: CREATE
+(p)MkdirAll: CREATE
+(p)MkdirTemp: CREATE
+(p)Remove: REMOVE
+(p)RemoveAll: REMOVE
+(p)Rename: RENAME(old), CREATE(new)?
+(p)Chmod: CHMOD
+(p)f.Chmod: CHMOD
+(p)Chown: CHMOD
+(p)f.Chown: CHMOD
+(p)Chtimes: CHMOD
+(p)f.Chtimes: CHMOD
+(p)Create: CREATE
+(p)CreateTemp: CREATE
+(p)OpenFile::O_CREATE::nonexisting: CREATE
+(p)OpenFile::O_CREATE|O_EXCL::nonexisting: CREATE
+(p)OpenFile::O_TRUNC::existing: WRITE
+(p)WriteFile::nonexisting: CREATE, WRITE
+(p)WriteFile::existing: CREATE, WRITE
+(p)Symlink: CREATE
+(p)f.Write: WRITE
+(p)f.WriteAt: WRITE
+(p)f.WriteString: WRITE
+(p)Truncate: WRITE
+(p)f.Truncate: WRITE
+
+CREATE: Mkdir, MkdirAll, Create, CreateTemp, OpenFile::O_CREATE::nonexisting, OpenFile::O_CREATE|O_EXCL::nonexisting, Symlink
+CREATE, WRITE: WriteFile
+RENAME: Rename
+CHMOD: Chmod, f.Chmod, Chown, f.Chown, Chtimes, f.Chtimes
+REMOVE: Remove, RemoveAll
+WRITE: OpenFile::O_TRUNC::existing, Write, WriteAt, WriteString, Truncate, f.Truncate
+*/
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/fsnotify/fsnotify"
+)
+
+var base = "/tmp/fstest/test"
+var watcher *fsnotify.Watcher
+var startG, finishG sync.WaitGroup
+var done context.Context
+var cancel context.CancelFunc
+
+func pnl(err error) {
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
+func tear() {
+	for _, path := range watcher.WatchList() {
+		err := watcher.Remove(path)
+		if err != nil && !strings.Contains(err.Error(), "invalid argument") {
+			fmt.Println(err)
+		}
+	}
+	pnl(os.RemoveAll(filepath.Join(base)))
+}
+
+func prep() {
+	done, cancel = context.WithCancel(context.Background())
+	pnl(os.MkdirAll(filepath.Join(base, "dummy"), 0o755))
+}
+
+type fnargs struct {
+	name    string
+	prepare func() (*os.File, error)
+	fn      func(*os.File) (*os.File, error)
+	paths   []string
+}
+
+func run(name string, prepare func() (*os.File, error), fn func(*os.File) (*os.File, error), paths ...string) []string {
+	var out []string
+	var f *os.File
+	var err error
+
+	out = append(out, "*** "+name)
+
+	prep()
+	if prepare != nil {
+		f, err = prepare()
+		if err != nil {
+			out = append(out, fmt.Sprintf("- prepare failed: %s", err))
+		}
+	}
+
+	startG.Add(1)
+	finishG.Add(1)
+	go func() {
+		startG.Done()
+		defer finishG.Done()
+		for {
+			select {
+			case <-done.Done():
+				return
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				out = append(out, fmt.Sprintf("- fsnotify error: %s", err))
+			case e, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				out = append(out, fmt.Sprintf("+ fsnotify event: %s", strings.ReplaceAll(e.String(), base, "+")))
+			}
+		}
+	}()
+	startG.Wait()
+
+	for _, path := range paths {
+		path := filepath.Join(base, path)
+		err = watcher.Add(path)
+		if err != nil {
+			out = append(out, fmt.Sprintf("- watcher add error: %s", err))
+		} else {
+			out = append(out, fmt.Sprintf("+ watching: %s", strings.ReplaceAll(path, base, "+")))
+		}
+	}
+	time.Sleep(1000 * time.Millisecond)
+
+	f, err = fn(f)
+	if err != nil {
+		out = append(out, fmt.Sprintf("- fn failed: %s", err))
+	}
+	if f != nil {
+		err = f.Close()
+		if err != nil {
+			out = append(out, fmt.Sprintf("- f.Close failed: %s", err))
+		}
+	}
+
+	time.Sleep(1000 * time.Millisecond)
+	cancel()
+	finishG.Wait()
+	tear()
+
+	return out
+}
+
+func Run(name string, prepare func() (*os.File, error), fn func(*os.File) (*os.File, error), paths ...string) fnargs {
+	return fnargs{name, prepare, fn, paths}
+}
+
+func main() {
+	var err error
+	watcher, err = fsnotify.NewWatcher()
+	pnl(err)
+	var out []fnargs
+
+	var prepare func() (*os.File, error)
+	var fn func(*os.File) (*os.File, error)
+
+	mkdir := func() (*os.File, error) {
+		return nil, os.Mkdir(filepath.Join(base, "dummy/dir"), 0o755)
+	}
+	writeDataPrep := func() (*os.File, error) {
+		return nil, os.WriteFile(filepath.Join(base, "dummy/file"), []byte("data"), 0o644)
+	}
+
+	out = append(out, Run("dir::os.Remove", func() (*os.File, error) {
+		err := os.MkdirAll(filepath.Join(base, "dummy/dir/1/2/3"), 0o755)
+		if err != nil {
+			return nil, err
+		}
+		return nil, os.WriteFile(filepath.Join(base, "dummy/dir/1/2/3/file"), []byte("data"), 0o644)
+	}, func(*os.File) (*os.File, error) {
+		return nil, os.RemoveAll(filepath.Join(base, "dummy/dir"))
+	}, "dummy/dir/1/2/3"))
+
+	out = append(out, Run("dir:os.Mkdir", nil, func(*os.File) (*os.File, error) {
+		return nil, os.Mkdir(filepath.Join(base, "dummy/dir"), 0o755)
+	}, "dummy"))
+	out = append(out, Run("dir:os.MkdirAll", nil, func(*os.File) (*os.File, error) {
+		return nil, os.MkdirAll(filepath.Join(base, "dummy/dir/1/2/3"), 0o755)
+	}, "dummy"))
+	out = append(out, Run("dir:os.MkdirTemp", nil, func(*os.File) (*os.File, error) {
+		_, err := os.MkdirTemp(filepath.Join(base, "dummy"), "tmp-dir-*")
+		return nil, err
+	}, "dummy"))
+
+	out = append(out, Run("dir:os.Remove", mkdir, func(f *os.File) (*os.File, error) {
+		return nil, os.Remove(filepath.Join(base, "dummy/dir"))
+	}, "dummy"))
+	out = append(out, Run("dir:os.RemoveAll", func() (*os.File, error) {
+		return nil, os.MkdirAll(filepath.Join(base, "dummy/dir/1/2/3"), 0o755)
+	}, func(f *os.File) (*os.File, error) {
+		return nil, os.RemoveAll(filepath.Join(base, "dummy/dir"))
+	}, "dummy", "dummy/dir", "dummy/dir/1", "dummy/dir/1/2"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return nil, os.Rename(filepath.Join(base, "dummy/dir"), filepath.Join(base, "dummy/new-dir"))
+	}
+	out = append(out, Run("dir:os.Rename::within-same-dir, watch-on-target", mkdir, fn, "dummy/dir"))
+	out = append(out, Run("dir:os.Rename::within-same-dir, watch-on-parent", mkdir, fn, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return nil, os.Rename(filepath.Join(base, "dummy/dir"), filepath.Join(base, "new-dir"))
+	}
+	out = append(out, Run("dir:os.Rename::outside-watched-dir, watch-on-target", mkdir, fn, "dummy/dir"))
+	out = append(out, Run("dir:os.Rename::outside-watched-dir, watch-on-parent", mkdir, fn, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return nil, os.Chmod(filepath.Join(base, "dummy/dir"), 0o777)
+	}
+	out = append(out, Run("dir:os.Chmod, watch-on-target", mkdir, fn, "dummy/dir"))
+	out = append(out, Run("dir:os.Chmod, watch-on-parent", mkdir, fn, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return nil, os.Chown(filepath.Join(base, "dummy/dir"), 1000, 1000)
+	}
+	out = append(out, Run("dir:os.Chown, watch-on-target", mkdir, fn, "dummy/dir"))
+	out = append(out, Run("dir:os.Chown, watch-on-parent", mkdir, fn, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return nil, os.Chtimes(filepath.Join(base, "dummy/dir"), time.Now(), time.Now())
+	}
+	out = append(out, Run("dir:os.Chtimes, watch-on-target", mkdir, fn, "dummy/dir"))
+	out = append(out, Run("dir:os.Chtimes, watch-on-parent", mkdir, fn, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return os.Open(filepath.Join(base, "dummy/dir"))
+	}
+	out = append(out, Run("dir:os.Open, watch-on-target", mkdir, fn, "dummy/dir"))
+	out = append(out, Run("dir:os.Open, watch-on-parent", mkdir, fn, "dummy"))
+
+	out = append(out, Run("file:os.Create", nil, func(f *os.File) (*os.File, error) {
+		return os.Create(filepath.Join(base, "dummy/file"))
+	}, "dummy"))
+	out = append(out, Run("file:os.CreateTemp", nil, func(f *os.File) (*os.File, error) {
+		return os.CreateTemp(filepath.Join(base, "dummy"), "tmp-file-*")
+	}, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return os.OpenFile(filepath.Join(base, "dummy/file"), os.O_APPEND, 0o644)
+	}
+	out = append(out, Run("file:os.OpenFile::O_APPEND, watch-on-target", writeDataPrep, fn, "dummy/file"))
+	out = append(out, Run("file:os.OpenFile::O_APPEND, watch-on-parent", writeDataPrep, fn, "dummy"))
+
+	out = append(out, Run("file:os.OpenFile::O_CREATE::nonexisting", nil, func(*os.File) (*os.File, error) {
+		return os.OpenFile(filepath.Join(base, "dummy/file"), os.O_CREATE, 0o644)
+	}, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return os.OpenFile(filepath.Join(base, "dummy/file"), os.O_CREATE, 0o644)
+	}
+	out = append(out, Run("file:os.OpenFile::O_CREATE::existing, watch-on-target", writeDataPrep, fn, "dummy/file"))
+	out = append(out, Run("file:os.OpenFile::O_CREATE::existing, watch-on-parent", writeDataPrep, fn, "dummy"))
+
+	out = append(out, Run("file:os.OpenFile::O_EXCL|O_CREATE", nil, func(*os.File) (*os.File, error) {
+		return os.OpenFile(filepath.Join(base, "dummy/file"), os.O_EXCL|os.O_CREATE, 0o644)
+	}, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return os.OpenFile(filepath.Join(base, "dummy/file"), os.O_RDONLY, 0o644)
+	}
+	out = append(out, Run("file:os.OpenFile::O_RDONLY, watch-on-target", writeDataPrep, fn, "dummy/file"))
+	out = append(out, Run("file:os.OpenFile::O_RDONLY, watch-on-parent", writeDataPrep, fn, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return os.OpenFile(filepath.Join(base, "dummy/file"), os.O_WRONLY, 0o644)
+	}
+	out = append(out, Run("file:os.OpenFile::O_WRONLY, watch-on-target", writeDataPrep, fn, "dummy/file"))
+	out = append(out, Run("file:os.OpenFile::O_WRONLY, watch-on-parent", writeDataPrep, fn, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return os.OpenFile(filepath.Join(base, "dummy/file"), os.O_RDWR, 0o644)
+	}
+	out = append(out, Run("file:os.OpenFile::O_RDWR, watch-on-target", writeDataPrep, fn, "dummy/file"))
+	out = append(out, Run("file:os.OpenFile::O_RDWR, watch-on-parent", writeDataPrep, fn, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return os.OpenFile(filepath.Join(base, "dummy/file"), os.O_TRUNC, 0o644)
+	}
+	out = append(out, Run("file:os.OpenFile::O_TRUNC, watch-on-target", writeDataPrep, fn, "dummy/file"))
+	out = append(out, Run("file:os.OpenFile::O_TRUNC, watch-on-parent", writeDataPrep, fn, "dummy"))
+
+	out = append(out, Run("file:os.WriteFile::nonexisting", nil, func(*os.File) (*os.File, error) {
+		return nil, os.WriteFile(filepath.Join(base, "dummy/file"), []byte("data"), 0o644)
+	}, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return nil, os.WriteFile(filepath.Join(base, "dummy/dir"), []byte("data"), 0o644)
+	}
+	out = append(out, Run("file:os.WriteFile::existing, watch-on-target", writeDataPrep, fn, "dummy/file"))
+	out = append(out, Run("file:os.WriteFile::existing, watch-on-parent", writeDataPrep, fn, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return nil, os.Symlink(filepath.Join(base, "dummy/file"), filepath.Join(base, "dummy/symlink"))
+	}
+	out = append(out, Run("file:os.Symlink, watch-on-target", writeDataPrep, fn, "dummy/file"))
+	out = append(out, Run("file:os.Symlink, watch-on-parent", writeDataPrep, fn, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return nil, os.Remove(filepath.Join(base, "dummy/file"))
+	}
+	out = append(out, Run("file:os.Remove, watch-on-target", writeDataPrep, fn, "dummy/file"))
+	out = append(out, Run("file:os.Remove, watch-on-parent", writeDataPrep, fn, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return nil, os.RemoveAll(filepath.Join(base, "dummy/file"))
+	}
+	out = append(out, Run("file:os.RemoveAll, watch-on-target", writeDataPrep, fn, "dummy/file"))
+	out = append(out, Run("file:os.RemoveAll, watch-on-parent", writeDataPrep, fn, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return nil, os.Rename(filepath.Join(base, "dummy/file"), filepath.Join(base, "dummy/file-new"))
+	}
+	out = append(out, Run("file:os.Rename::within-same-dir, watch-on-target", writeDataPrep, fn, "dummy/file"))
+	out = append(out, Run("file:os.Rename::within-same-dir, watch-on-parent", writeDataPrep, fn, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return nil, os.Rename(filepath.Join(base, "dummy/file"), filepath.Join(base, "file-new"))
+	}
+	out = append(out, Run("file:os.Rename::outside-original-dir, watch-on-target", writeDataPrep, fn, "dummy/file"))
+	out = append(out, Run("file:os.Rename::outside-original-dir, watch-on-parent", writeDataPrep, fn, "dummy"))
+
+	prepare = func() (*os.File, error) {
+		return os.OpenFile(filepath.Join(base, "dummy/file"), os.O_CREATE|os.O_WRONLY, 0o644)
+	}
+	fn = func(f *os.File) (*os.File, error) {
+		_, err = f.Write([]byte(strings.Repeat("data", 1000)))
+		return f, err
+	}
+	out = append(out, Run("file:(*os.File).Write, watch-on-target", prepare, fn, "dummy/file"))
+	out = append(out, Run("file:(*os.File).Write, watch-on-parent", prepare, fn, "dummy"))
+
+	prepare = func() (*os.File, error) {
+		f, err := os.OpenFile(filepath.Join(base, "dummy/file"), os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			return nil, err
+		}
+		_, err = f.Write([]byte(strings.Repeat("data", 1000)))
+		return f, err
+	}
+	fn = func(f *os.File) (*os.File, error) {
+		_, err = f.WriteAt([]byte("something"), 64)
+		return f, err
+	}
+	out = append(out, Run("file:(*os.File).WriteAt, watch-on-target", prepare, fn, "dummy/file"))
+	out = append(out, Run("file:(*os.File).WriteAt, watch-on-parent", prepare, fn, "dummy"))
+
+	prepare = func() (*os.File, error) {
+		f, err := os.OpenFile(filepath.Join(base, "dummy/file"), os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			return f, err
+		}
+		_, err = f.Write([]byte(strings.Repeat("data", 1000)))
+		return f, err
+	}
+	fn = func(f *os.File) (*os.File, error) {
+		_, err := f.WriteString("something")
+		return f, err
+	}
+	out = append(out, Run("file:(*os.File).WriteString, watch-on-target", prepare, fn, "dummy/file"))
+	out = append(out, Run("file:(*os.File).WriteString, watch-on-parent", prepare, fn, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return nil, os.Truncate(filepath.Join(base, "dummy/file"), 0)
+	}
+	out = append(out, Run("file:os.Truncate, watch-on-target", writeDataPrep, fn, "dummy/file"))
+	out = append(out, Run("file:os.Truncate, watch-on-parent", writeDataPrep, fn, "dummy"))
+
+	prepare = func() (*os.File, error) {
+		return os.OpenFile(filepath.Join(base, "dummy/file"), os.O_CREATE|os.O_WRONLY, 0o644)
+	}
+	fn = func(f *os.File) (*os.File, error) {
+		return f, f.Truncate(0)
+	}
+	out = append(out, Run("file:(*os.File).Truncate, watch-on-target", prepare, fn, "dummy/file"))
+	out = append(out, Run("file:(*os.File).Truncate, watch-on-parent", prepare, fn, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return nil, os.Chmod(filepath.Join(base, "dummy/file"), 0o655)
+	}
+	out = append(out, Run("file:os.Chmod, watch-on-target", writeDataPrep, fn, "dummy/file"))
+	out = append(out, Run("file:os.Chmod, watch-on-parent", writeDataPrep, fn, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return nil, os.Chown(filepath.Join(base, "dummy/file"), 1000, 1000)
+	}
+	out = append(out, Run("file:os.Chown, watch-on-target", writeDataPrep, fn, "dummy/file"))
+	out = append(out, Run("file:os.Chown, watch-on-parent", writeDataPrep, fn, "dummy"))
+
+	prepare = func() (*os.File, error) {
+		return os.OpenFile(filepath.Join(base, "dummy/file"), os.O_CREATE|os.O_WRONLY, 0o644)
+	}
+	fn = func(f *os.File) (*os.File, error) {
+		return f, f.Chmod(0o655)
+	}
+	out = append(out, Run("file:(*os.File).Chmod, watch-on-target", prepare, fn, "dummy/file"))
+	out = append(out, Run("file:(*os.File).Chmod, watch-on-parent", prepare, fn, "dummy"))
+
+	prepare = func() (*os.File, error) {
+		return os.OpenFile(filepath.Join(base, "dummy/file"), os.O_CREATE|os.O_WRONLY, 0o644)
+	}
+	fn = func(f *os.File) (*os.File, error) {
+		return f, f.Chown(1000, 1000)
+	}
+	out = append(out, Run("file:(*os.File).Chown, watch-on-target", prepare, fn, "dummy/file"))
+	out = append(out, Run("file:(*os.File).Chown, watch-on-parent", prepare, fn, "dummy"))
+
+	fn = func(f *os.File) (*os.File, error) {
+		return nil, os.Chtimes(filepath.Join(base, "dummy/file"), time.Now(), time.Now())
+	}
+	out = append(out, Run("file:os.Chtimes, watch-on-target", writeDataPrep, fn, "dummy/file"))
+	out = append(out, Run("file:os.Chtimes, watch-on-parent", writeDataPrep, fn, "dummy"))
+
+	for _, fna := range out {
+		result := run(fna.name, fna.prepare, fna.fn, fna.paths...)
+		fmt.Println("\n-----")
+		fmt.Println(strings.Join(result, "\n"))
+	}
+}
