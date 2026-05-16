@@ -20,6 +20,7 @@ const (
 	Write
 )
 
+<<<<<<< Updated upstream
 var (
 	// holds named locks.
 	registry   = make(map[string]RLocker)
@@ -103,6 +104,95 @@ type NamedLock struct {
 
 // takes a slice of required named locks (can include "path:<p>" entries or global locks),
 // sorts & deduplicates by name (Write wins against Read in dedupe), then acquires them in sorted order.
+||||||| Stash base
+=======
+func NewMutex() *sync.Mutex     { return new(sync.Mutex) }
+func NewRWMutex() *sync.RWMutex { return new(sync.RWMutex) }
+
+var (
+	// holds named locks.
+	registry   = make(map[string]RLocker)
+	registryMu sync.RWMutex
+	// holds statically defined locks, since there's no variability, there's no need for a mutex.
+	registryStatic = make(map[string]RLocker)
+)
+
+// registers a lock under a canonical name.
+// If a lock with that name already exists, it is overwritten.
+func registerLock(name string, l RLocker) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	registry[name] = l
+}
+
+// registers locks in the static map; must only be used during init
+func registerStaticLock(name string, l RLocker) {
+	registryStatic[name] = l
+}
+
+// returns a lock if registered (statically or otherwise)
+func getLock(name string) (RLocker, bool) {
+	l, ok := registryStatic[name]
+	if !ok {
+		registryMu.RLock()
+		l, ok = registry[name]
+		registryMu.RUnlock()
+	}
+	return l, ok
+}
+
+func PrefixPath(path string) string {
+	return "path:" + path
+}
+
+// checks whether the corresponding path lock exists in registry
+func PathLockExists(path string) bool {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+	_, ok := registry[PrefixPath(path)]
+	return ok
+}
+
+// ensures a *sync.RWMutex exists for path and registers an adapter
+// under the canonical name "path:<path>". returns the RLocker adapter.
+// does not overwrite existing pathname
+func RegisterPathLock(path string) RLocker {
+	key := PrefixPath(path)
+
+	if l, ok := getLock(key); ok {
+		return l
+	}
+	mu := new(sync.RWMutex)
+	registerLock(key, mu)
+	return mu
+}
+
+// builds NamedLocks for a slice of paths
+func NamedLocksForPaths(paths []string, mode LockMode) []NamedLock {
+	out := make([]NamedLock, 0, len(paths))
+	for _, p := range paths {
+		out = append(out, NamedLock{Name: PrefixPath(p), Mode: mode})
+	}
+	return out
+}
+
+// builds NamedLocks for a slice of keys
+func NamedLocks(keys []string, mode LockMode) []NamedLock {
+	out := make([]NamedLock, 0, len(keys))
+	for _, p := range keys {
+		out = append(out, NamedLock{Name: p, Mode: mode})
+	}
+	return out
+}
+
+type NamedLock struct {
+	Name string
+	Mode LockMode
+}
+
+// takes a slice of required named locks (can include "path:<p>" entries or global locks),
+// sorts & deduplicates by name (Write wins), then acquires them in sorted order.
+>>>>>>> Stashed changes
 // returns an unlock func which will release the locks in reverse order.
 func AcquireLocks(req []NamedLock) (func(), error) {
 	// dedupe into map[name]Mode where Write overrides Read

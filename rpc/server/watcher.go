@@ -16,6 +16,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+<<<<<<< Updated upstream
 func trackPath(watcher *fsnotify.Watcher, addr string, pinfo *info.Info) {
 	pinfo, err := info.EnsureInfo(pinfo, addr, false)
 	if err != nil {
@@ -27,6 +28,26 @@ func trackPath(watcher *fsnotify.Watcher, addr string, pinfo *info.Info) {
 		return
 	}
 	if pinfo.IsInArchive() || path.IsInEtc() {
+||||||| Stash base
+=======
+// TODO: the use of file.info.Info is extremely inefficient, the os.Stat and os.Lstat are hit multiple times unnecessarily
+
+func trackPath(watcher *fsnotify.Watcher, pathAddr string) {
+	path, err := info.Identify(pathAddr)
+	if err != nil {
+		logging.Logger.Warnf("trackPath: skipping path '%q': %w", path, err)
+		return
+	}
+	if !path.DoesExist() {
+		logging.Logger.Warnf("trackPath: skipping non-existent path '%q'", path)
+		return
+	}
+	if !path.HasRead {
+		logging.Logger.Warnf("trackPath: skipping path '%q' with no read permission", path)
+		return
+	}
+	if path.IsInArchive() || path.IsInEtc() {
+>>>>>>> Stashed changes
 		return
 	}
 	if path.IsFile && !path.HasWrite && !path.IsConfigFile() {
