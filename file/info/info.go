@@ -174,6 +174,10 @@ func EnsureInfo(i *Info, path string, force bool) (*Info, error) {
 	return i, nil
 }
 
+func (i *Info) AddrAccessible() bool {
+	return i.Exists && ((i.IsSymlink && i.DestExists) || !i.IsSymlink) && i.HasRead
+}
+
 func (i *Info) NeedsRefresh() bool {
 	if i.lastProbed.IsZero() {
 		return true

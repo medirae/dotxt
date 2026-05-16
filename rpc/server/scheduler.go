@@ -5,79 +5,73 @@ import (
 	"dotxt/logging"
 	"dotxt/rpc/shared"
 	"dotxt/terrors"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 )
 
-/*
-here's the thing:
-there should be a type Request that represents something that the server has to
+type RequestHandle struct {
+	request *Request
+	ctx     context.Context
+	cancel  context.CancelFunc
+	done    chan struct{}
+	mu      sync.Mutex
+	err     error
+}
 
-	somehow respond to.
-	- requests from the cli/gui:
-		- read from todo data
-		- write to todo data
-		- read metadata
-		- write metadata
-	- requests from watcher:
-		- false positive events that the application triggered i.e. writing to a todo or metadata change
-		- write to a file by user
-		- deletion of file
-		- creation of file in directory
-	- requests made from the server: ?
+func (rh *RequestHandle) String() string { return rh.request.String() }
 
-sources of incoming requests include the fsnotify.Watcher goroutine and service Methods.
+func newRequestHandle(r *Request, ctx context.Context, timeout time.Duration) *RequestHandle {
+	var cancel context.CancelFunc
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+	} else {
+		ctx, cancel = context.WithCancel(ctx)
+	}
+	return &RequestHandle{request: r, ctx: ctx, cancel: cancel, done: make(chan struct{})}
+}
 
-	every source should wrap the received data into a Request and send it into a channel
-	that solely receives requests; let's call the channel the requests-ch
+func (rh *RequestHandle) Cancel() { rh.cancel() }
 
-there should be a goroutine reading Requests from requests-ch and categorizing them.
-these categories must not have any collisions with eachother in terms of data corruption.
+func (rh *RequestHandle) Done() <-chan struct{} { return rh.done }
 
-	but since that would be impossible, there needs to be a locking category that serves as a
-	category that everything in it will lock every other category; it has the upper hand and
-	blocks all else. so when something that collides with all or nearly all other category
-	requests, must come here and block all as to avoid data corruption.
-	but for any other category - presuming the locking category is not blocking - the Requests
-	of each one can only block the requests of that category.
-	when a requests could not possibly corrupt any data then that should go to a free-for-all kind
-	of category where when a request comes it is immediately served.
-	categories: ?
+func (rh *RequestHandle) Wait() error {
+	<-rh.done
+	rh.mu.Lock()
+	defer rh.mu.Unlock()
+	return rh.err
+}
 
-each category must have its own scheduler. the scheduler for the category
+func (rh *RequestHandle) setResult(err error) {
+	rh.mu.Lock()
+	if rh.err != nil {
+		rh.err = errors.Join(rh.err, err)
+	} else {
+		rh.err = err
+	}
+	rh.mu.Unlock()
 
-	must receive the nearly-immediately requests and go over them and *sort* and store them.
-	then it must go over the list of Requests as long as they are non-blocking Requests and
-	dispatch them. when the scheduler meets a blocking Request and all other non-blocking
-	Requests, if any, are after that, then the scheduler locks everything down until that
-	blocking Request is processed; after which it must unlock. when it unlocks it should check,
-	if a significant portion of time has passed, it shouldn't resume the current list of Requests,
-	but rather it should again check whether there are any newer Requests that have come during
-	this significant period of time, add them to the list, sort them, and start going over them from the beginning.
-*/
+	// ensure done is closed without panic
+	select {
+	case <-rh.done:
+	default:
+		close(rh.done)
+	}
+}
 
-// Request Dispatcher listens to this for requests
-var requestsCh chan *Request
-
-// TODO: heavily review the concurrency management like done, ctx, etc
 type Request struct {
 	ID           string
 	Resources    []shared.NamedLock
 	Task         func(ctx context.Context) error
 	Dependencies []<-chan struct{}
-	done         chan struct{}
-	ctx          context.Context
 	CreationTime time.Time
 }
 
 func (r *Request) String() string {
 	var out strings.Builder
 	out.WriteString(fmt.Sprintf("R:'%s'", r.ID))
-	// if len(r.Resources) > 0 && r.Resources[0].Mutex == ExclusiveLock { // TODO: figure out how to mark exclusive lock
-	// 	out.WriteString(" x")
-	// }
 	if len(r.Resources) > 0 {
 		out.WriteString(fmt.Sprintf(" %dr", len(r.Resources)))
 	}
@@ -90,89 +84,92 @@ func (r *Request) String() string {
 
 // executing the request along with pre and post processing
 // must be run as a goroutine
-func (r *Request) Exec(dispatcherCtx context.Context) error {
-	defer close(r.done)
-	for _, dependency := range r.Dependencies {
+func (r *Request) Exec(ctx context.Context, done chan<- struct{}) error {
+	defer close(done)
+	for _, dependency := range r.Dependencies { // WARN: prone to deadlock
 		select {
 		case <-dependency:
-		case <-r.ctx.Done():
-			return fmt.Errorf("%w: %w: request '%s' cancelled via context: %w",
-				terrors.ErrRPC, terrors.ErrConcurrency, r.ID, r.ctx.Err())
-		case <-dispatcherCtx.Done():
-			return fmt.Errorf("%w: %w: request '%s' cancelled via dispatcher: %w",
-				terrors.ErrRPC, terrors.ErrConcurrency, r.ID, dispatcherCtx.Err())
+		case <-ctx.Done():
+			return fmt.Errorf("%w: %w: request '%s' cancelled: %w",
+				terrors.ErrRPC, terrors.ErrConcurrency, r.ID, ctx.Err())
 		}
 	}
 	unlock, err := shared.AcquireLocks(r.Resources)
 	if err != nil {
 		return err
 	}
+	tctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	defer unlock()
-	return r.Task(r.ctx)
+	return r.Task(tctx)
 }
 
 func MakeRequest(
-	label string, ctx context.Context,
-	task func(ctx context.Context) error,
+	label string, task func(ctx context.Context) error,
 	resources []shared.NamedLock,
 	deps ...<-chan struct{},
-) (<-chan struct{}, context.CancelFunc, error) {
+) (*RequestHandle, error) {
 	rn := time.Now()
 	id := fmt.Sprintf("%s:%d", strings.ReplaceAll(label, " ", "-"), rn.UnixMicro())
-	ctxTimed, cancel := context.WithTimeout(ctx, requestTimeout)
 	r := &Request{
 		ID: id, Resources: resources, Task: task,
-		Dependencies: deps, done: make(chan struct{}),
-		ctx: ctxTimed, CreationTime: rn,
+		Dependencies: deps, CreationTime: rn,
 	}
+	rh := newRequestHandle(r, context.Background(), requestTimeout)
 	select {
-	case requestsCh <- r:
+	case requestsCh <- rh:
 	case <-time.After(requestAdmitTimeout):
-		cancel()
-		close(r.done)
-		return nil, nil,
-			fmt.Errorf("%w: request admittence timeout '%s' exceeded, server is busy, request dropped",
-				terrors.ErrRPC, requestAdmitTimeout)
+		rh.Cancel()
+		return nil, fmt.Errorf("%w: request admittence timeout '%s' exceeded, server is busy, request dropped",
+			terrors.ErrRPC, requestAdmitTimeout)
 	}
-	return r.done, cancel, nil
+	return rh, nil
 }
 
 // reads requests and categorically decides where they ought to go
 // must be run as a goroutine
-/* TODO: bound concurrent processing
-develop a `type Semaphore chan struct{}`
-	with `func (s Semaphore) Acquire(ctx context.Context) error`
-	and `func (s Semaphore) Release()`
-then use Acquire before creating the request goroutine
-	and then defer Release in the goroutine
-ai said to set the size as min(4*CPU, 64) but I don't know what that means
-*/
 func Dispatcher(wg *sync.WaitGroup, ctx context.Context) {
 	var requestGroup sync.WaitGroup
-	defer requestGroup.Wait()
-	defer wg.Done()
-
-	type rh struct { // request holder
-		r      *Request
+	type rho struct { // request handle holder
+		rh     *RequestHandle
 		cancel context.CancelFunc
 	}
-	requests := make(map[string]rh)
+	requests := make(map[string]rho)
 	var requestsLock sync.RWMutex
 
+	var workerGroup sync.WaitGroup
+	jobs := make(chan func(), numWorkers)
+	for range numWorkers {
+		workerGroup.Add(1)
+		go func() {
+			defer workerGroup.Done()
+			for job := range jobs {
+				job()
+			}
+		}()
+	}
+
+	// shutdown
 	defer func() {
+		close(jobs)
 		requestsLock.Lock()
 		for _, r := range requests {
 			r.cancel()
+			r.rh.setResult(fmt.Errorf("RPC server: Dispatcher: %w: %w: shutting down", terrors.ErrRPC, terrors.ErrConcurrency))
 		}
 		requestsLock.Unlock()
+		requestGroup.Wait()
+		workerGroup.Wait()
+		wg.Done()
 	}()
 
+	// eventloop
 	for {
 		select {
 		case <-ctx.Done():
 			logging.Logger.Infof("RPC server: Dispatcher: cancelled via main")
 			return
-		case r, ok := <-requestsCh:
+		case rh, ok := <-requestsCh:
 			if !ok {
 				logging.Logger.Infof("RPC server: Dispatcher: requests channel closed, exitting")
 				return
@@ -181,35 +178,37 @@ func Dispatcher(wg *sync.WaitGroup, ctx context.Context) {
 			requestGroup.Add(1)
 			rctx, cancel := context.WithCancel(ctx)
 			requestsLock.Lock()
-			_, duplicate := requests[r.ID]
+			_, duplicate := requests[rh.request.ID]
 			if !duplicate {
-				requests[r.ID] = rh{r: r, cancel: cancel}
+				requests[rh.request.ID] = rho{rh: rh, cancel: cancel}
 			} else {
 				cancel()
-				close(r.done)
 				requestsLock.Unlock()
-				logging.Logger.Warnf("RPC server: Dispatcher: duplicate request '%s' ignored", *r)
+				rh.setResult(fmt.Errorf("RPC server: %w: %w: duplicate request '%s' ignored", terrors.ErrRPC, terrors.ErrConcurrency, rh.request.ID))
+				logging.Logger.Warnf("RPC server: Dispatcher: duplicate request '%s' ignored", rh.String())
+				requestGroup.Done()
 				continue
 			}
 			requestsLock.Unlock()
 
-			logging.Logger.Infof("RPC server: Dispatcher: goroutine started for request '%s'", *r)
-			go func(r *Request) {
+			logging.Logger.Infof("RPC server: Dispatcher: goroutine started for request '%s'", rh.String())
+			jobs <- func() {
 				defer requestGroup.Done()
-				err := r.Exec(rctx)
+				err := rh.request.Exec(rctx, rh.done)
+				rh.setResult(err)
 				if err != nil {
-					logging.Logger.Errorf("RPC server: Dispatcher: request goroutine: request '%s' Error: %w", *r, err)
+					logging.Logger.Errorf("RPC server: Dispatcher: request goroutine: request '%s' Error: %w", *rh.request, err)
 				} else {
-					logging.Logger.Infof("RPC server: Dispatcher: request goroutine: request '%s' finished", *r)
+					logging.Logger.Infof("RPC server: Dispatcher: request goroutine: request '%s' finished", *rh.request)
 				}
 
 				requestsLock.Lock()
-				if val, ok := requests[r.ID]; ok {
+				if val, ok := requests[rh.request.ID]; ok {
 					val.cancel()
-					delete(requests, r.ID)
+					delete(requests, rh.request.ID)
 				}
 				requestsLock.Unlock()
-			}(r)
+			}
 		}
 	}
 }

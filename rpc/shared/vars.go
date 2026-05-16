@@ -1,6 +1,9 @@
 package shared
 
 import (
+	"os"
+	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -15,7 +18,7 @@ func init() {
 }
 
 var ( // resources
-	ConfigLock     = NewRWMutex()
+	ConfigLock     = new(sync.RWMutex)
 	ConfigLockName = "3-config"
 
 	// used to lock the task package itself so that write operations such as
@@ -27,17 +30,19 @@ var ( // resources
 	// used to keep track of symlink->file/dir
 	// note that the link is not necessarily direct: symlink->...symlink...->target
 	SymLinks         = make(map[string]string)
-	SymLinksLock     = NewRWMutex()
+	SymLinksLock     = new(sync.RWMutex)
 	SymLinksLockName = "1-symlinks"
 	// used to keep track of actual files/dirs that were to be tracked
 	// instead of the parent path that was submitted to fsnotify
 	Tracked         = make(map[string]bool) // TODO: make use of
-	TrackedLock     = NewRWMutex()
+	TrackedLock     = new(sync.RWMutex)
 	TrackedLockName = "2-tracked"
 
 	// used to mark an internal event,
 	//  so upcoming events in a time-window can be dropped.
 	InternalEvents         = make(map[string]*InternalEvent)
-	InternalEventsLock     = NewRWMutex()
+	InternalEventsLock     = new(sync.RWMutex)
 	InternalEventsLockName = "0-internal-events"
 )
+
+var Socket string = filepath.Join(os.Getenv("XDG_RUNTIME_DIR"), "dotxt-rpc.socket")

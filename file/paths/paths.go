@@ -53,6 +53,36 @@ func ArchiveDir() string {
 	return filepath.Join(config.ConfigPath(), ArchiveDirName)
 }
 
+type PathLoc uint8
+
+const (
+	InTexts PathLoc = iota
+	InDone
+	InBackups
+	InArchives
+	UnknownLoc
+)
+
+func DiagnosePathLoc(addr string) PathLoc {
+	addr, err := filepath.Abs(addr)
+	if err != nil {
+		return UnknownLoc
+	}
+	for parent, loc := range map[string]PathLoc{
+		TextsDir(): InTexts, DoneDir(): InDone,
+		BackupDir(): InBackups, ArchiveDir(): InArchives,
+	} {
+		rel, err := filepath.Rel(parent, addr)
+		if err != nil {
+			return UnknownLoc
+		}
+		if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return loc
+		}
+	}
+	return UnknownLoc
+}
+
 // represents the idea of a task list
 type Path struct {
 	Name     string

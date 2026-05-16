@@ -16,23 +16,17 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// TODO: the use of file.info.Info is extremely inefficient, the os.Stat and os.Lstat are hit multiple times unnecessarily
-
-func trackPath(watcher *fsnotify.Watcher, pathAddr string) {
-	path, err := info.Identify(pathAddr)
+func trackPath(watcher *fsnotify.Watcher, addr string, pinfo *info.Info) {
+	pinfo, err := info.EnsureInfo(pinfo, addr, false)
 	if err != nil {
-		logging.Logger.Warnf("trackPath: skipping path '%q': %w", path, err)
+		logging.Logger.Warnf("trackPath: skipping path '%q': %w", addr, err)
 		return
 	}
-	if !path.DoesExist() {
-		logging.Logger.Warnf("trackPath: skipping non-existent path '%q'", path)
+	if !pinfo.AddrAccessible() {
+		logging.Logger.Warnf("trackPath: skipping inaccessible path '%q'", addr)
 		return
 	}
-	if !path.HasRead {
-		logging.Logger.Warnf("trackPath: skipping path '%q' with no read permission", path)
-		return
-	}
-	if path.IsInArchive() || path.IsInEtc() {
+	if pinfo.IsInArchive() || path.IsInEtc() {
 		return
 	}
 	if path.IsFile && !path.HasWrite && !path.IsConfigFile() {

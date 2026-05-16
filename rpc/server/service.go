@@ -9,9 +9,7 @@ import (
 type Service any
 
 var services = map[string]func() Service{
-	"TaskService": func() Service {
-		return &TaskService{}
-	},
+	"TaskService": func() Service { return &TaskService{} },
 }
 
 func init() {

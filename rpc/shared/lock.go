@@ -20,9 +20,6 @@ const (
 	Write
 )
 
-func NewMutex() *sync.Mutex     { return new(sync.Mutex) }
-func NewRWMutex() *sync.RWMutex { return new(sync.RWMutex) }
-
 var (
 	// holds named locks.
 	registry   = make(map[string]RLocker)
@@ -105,7 +102,7 @@ type NamedLock struct {
 }
 
 // takes a slice of required named locks (can include "path:<p>" entries or global locks),
-// sorts & deduplicates by name (Write wins), then acquires them in sorted order.
+// sorts & deduplicates by name (Write wins against Read in dedupe), then acquires them in sorted order.
 // returns an unlock func which will release the locks in reverse order.
 func AcquireLocks(req []NamedLock) (func(), error) {
 	// dedupe into map[name]Mode where Write overrides Read

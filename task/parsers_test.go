@@ -3,6 +3,7 @@ package task
 import (
 	"dotxt/config"
 	"dotxt/terrors"
+	"dotxt/utils/testils"
 	"fmt"
 	"os"
 	"strconv"
@@ -17,11 +18,13 @@ import (
 const dtFormat = "2006-01-02T15-04"
 
 func TestMain(m *testing.M) {
-	if err := os.RemoveAll("/tmp/dotxt-testing"); err != nil {
+	testils.EnsureTestDir()
+	path := "/tmp/dotxt-testing/task"
+	if err := os.RemoveAll(path); err != nil {
 		panic(err)
 	}
-	config.InitViper("/tmp/dotxt-testing")
-	if err := os.MkdirAll("/tmp/dotxt-testing", 0755); err != nil {
+	config.InitViper(path)
+	if err := os.MkdirAll(path, 0755); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

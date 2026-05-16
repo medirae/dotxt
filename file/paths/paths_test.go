@@ -3,6 +3,7 @@ package paths
 import (
 	"dotxt/config"
 	"dotxt/terrors"
+	"dotxt/utils/testils"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,7 +15,8 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	path := "/tmp/dotxt-testing/paths"
+	testils.EnsureTestDir()
+	path := "/tmp/dotxt-testing/file-paths"
 	if err := os.RemoveAll(path); err != nil {
 		panic(err)
 	}
@@ -157,5 +159,43 @@ func TestParseDirpath(t *testing.T) {
 	t.Run("home ~", func(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(filepath.Join(TextsDir(), "dir/dir2/dir3"), helper("~/../.."+TextsDir()+"/dir/dir2/dir3"))
+	})
+}
+
+func TestDiagnosePathLoc(t *testing.T) {
+	assert := assert.New(t)
+	prevConfig := config.ConfigPath()
+	defer config.SelectConfigFile(prevConfig)
+	tmpDir, err := os.MkdirTemp(prevConfig, "")
+	require.Nil(t, err)
+	config.SelectConfigFile(tmpDir)
+
+	t.Run("in texts", func(t *testing.T) {
+		addr := filepath.Join(TextsDir(), "file")
+		assert.Equal(InTexts, DiagnosePathLoc(addr))
+		assert.Equal(InTexts, DiagnosePathLoc(TextsDir()))
+	})
+	t.Run("in done", func(t *testing.T) {
+		addr := filepath.Join(DoneDir(), "file")
+		assert.Equal(InDone, DiagnosePathLoc(addr))
+		assert.Equal(InDone, DiagnosePathLoc(DoneDir()))
+	})
+	t.Run("in backup", func(t *testing.T) {
+		addr := filepath.Join(BackupDir(), "file")
+		assert.Equal(InBackups, DiagnosePathLoc(addr))
+		assert.Equal(InBackups, DiagnosePathLoc(BackupDir()))
+	})
+	t.Run("in archive", func(t *testing.T) {
+		addr := filepath.Join(ArchiveDir(), "file")
+		assert.Equal(InArchives, DiagnosePathLoc(addr))
+		assert.Equal(InArchives, DiagnosePathLoc(ArchiveDir()))
+	})
+	t.Run("unknown", func(t *testing.T) {
+		assert.Equal(UnknownLoc, DiagnosePathLoc(""))
+		assert.Equal(UnknownLoc, DiagnosePathLoc("."))
+		assert.Equal(UnknownLoc, DiagnosePathLoc(".."))
+		assert.Equal(UnknownLoc, DiagnosePathLoc("/home"))
+		assert.Equal(UnknownLoc, DiagnosePathLoc(config.ConfigPath()))
+		assert.Equal(UnknownLoc, DiagnosePathLoc(filepath.Dir(config.ConfigPath())))
 	})
 }

@@ -5,6 +5,7 @@ import (
 	"dotxt/file"
 	"dotxt/file/info"
 	"dotxt/file/paths"
+	"dotxt/utils/testils"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,7 +17,8 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	path := "/tmp/dotxt-testing/paths"
+	testils.EnsureTestDir()
+	path := "/tmp/dotxt-testing/file-info"
 	if err := os.RemoveAll(path); err != nil {
 		panic(err)
 	}
@@ -160,7 +162,7 @@ func TestEnsureInfo(t *testing.T) {
 	require.NoError(t, file.MkStructure())
 
 	t.Run("no-addr with-path", func(t *testing.T) {
-		path := filepath.Join(paths.TextsDir(), "1")
+		path := filepath.Join(paths.TextsDir(), "f1")
 		require.NoError(t, os.WriteFile(path, []byte(""), 0644))
 		i, err := info.EnsureInfo(nil, path, false)
 		require.NoError(t, err)
@@ -171,7 +173,7 @@ func TestEnsureInfo(t *testing.T) {
 		assert.EqualValues(0, i.Size)
 	})
 	t.Run("addr no-path", func(t *testing.T) {
-		path := filepath.Join(paths.TextsDir(), "2")
+		path := filepath.Join(paths.TextsDir(), "f2")
 		require.NoError(t, os.WriteFile(path, []byte(""), 0644))
 		i := info.NewInfo(path)
 		_, err := info.EnsureInfo(i, "", false)
@@ -209,10 +211,10 @@ func TestNeedsRefresh(t *testing.T) {
 		i := info.NewInfo(path)
 		require.NoError(t, os.WriteFile(path, []byte(""), 0644))
 		require.NoError(t, i.Refresh(true))
-		time.Sleep(1100 * time.Millisecond)
+		time.Sleep(990 * time.Millisecond)
 		assert.False(i.NeedsRefresh())
 	})
-	t.Run("time changed", func(t *testing.T) {
+	t.Run("time passed", func(t *testing.T) {
 		path := filepath.Join(paths.TextsDir(), "file")
 		i := info.NewInfo(path)
 		require.NoError(t, os.WriteFile(path, []byte(""), 0644))

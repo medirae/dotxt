@@ -4,6 +4,7 @@ import (
 	"dotxt/config"
 	"dotxt/file/paths"
 	"dotxt/terrors"
+	"dotxt/utils/testils"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,22 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// import (
-// 	"dotxt/config"
-// 	"dotxt/file/paths"
-// 	"dotxt/task"
-// 	"dotxt/terrors"
-// 	"fmt"
-// 	"os"
-// 	"path/filepath"
-// 	"strings"
-// 	"testing"
-
-// 	"github.com/stretchr/testify/assert"
-// 	"github.com/stretchr/testify/require"
-// )
-
 func TestMain(m *testing.M) {
+	testils.EnsureTestDir()
 	path := "/tmp/dotxt-testing/file"
 	if err := os.RemoveAll(path); err != nil {
 		panic(err)
