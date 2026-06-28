@@ -1,6 +1,6 @@
 # dotxt
 
-A text-based task manager for the terminal, inspired by [Todo.txt](http://todotxt.org/).
+A text-based todo manager for the terminal, inspired by [Todo.txt](http://todotxt.org/).
 
 dotxt extends plain text files with a structured token syntax — dates, recurrence, 
 priorities, progress tracking, and parent-child task relationships — while keeping 
